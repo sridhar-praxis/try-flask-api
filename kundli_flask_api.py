@@ -34,7 +34,7 @@ def get_coordinates(city, country):
 def get_planet_positions(dt, city, country):
     utc_dt = dt.astimezone(pytz.utc)
     jd = swe.utc_to_jd(utc_dt.year, utc_dt.month, utc_dt.day,
-                       utc_dt.hour + utc_dt.minute / 60 + utc_dt.second / 3600)
+                   utc_dt.hour, utc_dt.minute, utc_dt.second)
 
     lat, lon = get_coordinates(city, country)
     if lat is None:
