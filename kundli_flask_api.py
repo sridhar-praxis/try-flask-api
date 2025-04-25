@@ -5,40 +5,44 @@ import pytz
 import swisseph as swe
 import numpy as np
 from geopy.geocoders import Nominatim
+from timezonefinder import TimezoneFinder
 
 app = Flask(__name__)
 CORS(app)
 
-fallback_locations = {
-    "Bangalore, India": (12.9716, 77.5946),
-    "Chennai, India": (13.0827, 80.2707),
-    "Delhi, India": (28.6139, 77.2090),
-    "Mumbai, India": (19.0760, 72.8777),
-    "Kolkata, India": (22.5726, 88.3639),
-}
+def get_timezone_name(lat, lon):
+    tf = TimezoneFinder()
+    return tf.timezone_at(lat=lat, lng=lon)
 
 def get_coordinates(city, country):
-    key = f"{city.strip()}, {country.strip()}"
     try:
         geolocator = Nominatim(user_agent="kundli-api")
-        loc = geolocator.geocode(key, timeout=10)
+        loc = geolocator.geocode(f"{city.strip()}, {country.strip()}", timeout=10)
         if loc:
             return loc.latitude, loc.longitude
-        elif key in fallback_locations:
-            return fallback_locations[key]
         else:
             return None, None
-    except:
-        return fallback_locations.get(key, (None, None))
+    except Exception as e:
+        print(f"Geocoding failed: {e}")
+        return None, None
+
 
 def get_planet_positions(dt, city, country):
-    utc_dt = dt.astimezone(pytz.utc)
-    jd = swe.utc_to_jd(utc_dt.year, utc_dt.month, utc_dt.day,
-                   utc_dt.hour, utc_dt.minute, utc_dt.second)
-
     lat, lon = get_coordinates(city, country)
     if lat is None:
         return {"error": "Could not resolve location"}
+
+    # Convert to UTC from local timezone of the given location
+    tz_name = get_timezone_name(lat, lon)
+    if not tz_name:
+        return {"error": f"Could not determine timezone for {city}, {country}"}
+
+    local_tz = pytz.timezone(tz_name)
+    local_dt = local_tz.localize(dt)
+    utc_dt = local_dt.astimezone(pytz.utc)
+
+    jd = swe.utc_to_jd(utc_dt.year, utc_dt.month, utc_dt.day,
+                       utc_dt.hour, utc_dt.minute, utc_dt.second)
 
     swe.set_sid_mode(swe.SIDM_LAHIRI)
     delta = 0.88
@@ -74,11 +78,11 @@ def get_planet_positions(dt, city, country):
             formatted.append(f"{Q}s {D}d {M}m")
             graham = "Rahu"
 
-        graha.append(graham)
-        graha_pos.append(pos)
         Q = int(pos / 30)
         D = int(pos % 30)
         M = int((pos % 1) * 60)
+        graha.append(graham)
+        graha_pos.append(pos)
         formatted.append(f"{Q}s {D}d {M}m")
 
     return {
@@ -92,7 +96,6 @@ def kundli_api():
     try:
         data = request.get_json()
         dt = datetime.strptime(f"{data['dob']} {data['tob']}", "%Y-%m-%d %H:%M:%S")
-        dt = pytz.timezone("Asia/Kolkata").localize(dt)
         result = get_planet_positions(dt, data['city'], data['country'])
         return jsonify(result)
     except Exception as e:
